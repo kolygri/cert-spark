@@ -48,4 +48,4 @@ VITE_SUPABASE_URL
 VITE_SUPABASE_PUBLISHABLE_KEY
 ```
 
-Get both values from Supabase **Project Settings → API**. The publishable key is designed for browser use; do not add the `service_role` key to Vercel or the client app. After adding the values, redeploy from Vercel or push a commit.
+Get both values from Supabase **Project Settings → API**, or install the official Vercel Supabase integration, which supplies `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` automatically at build time. The publishable key is designed for browser use; do not add the `service_role` key to the client app. After adding the values, redeploy from Vercel or push a commit.
