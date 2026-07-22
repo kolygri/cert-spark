@@ -11,7 +11,7 @@ A mobile-first, voice-led prototype for completing UK electrical installation ce
 5. Review the values FieldCert matched, including confidence warnings.
 6. Apply the confirmed values, resolve missing details, sign and export.
 
-The current demo implements the central certificate workspace and a simulated voice-to-fields review flow. It uses the section structure of the [IET BS 7671:2018+A4:2026 model Electrical Installation Certificate](https://electrical.theiet.org/bs-7671-18th-edition-wiring-regulations/model-forms/) as its reference. It does not reproduce the IET logo.
+The current demo implements the full A–J certificate journey and a simulated voice-to-fields review flow. It uses the section structure of the [IET BS 7671:2018+A4:2026 model Electrical Installation Certificate](https://electrical.theiet.org/bs-7671-18th-edition-wiring-regulations/model-forms/) as its reference. It does not reproduce the IET logo. Read the [certificate workflow](docs/certificate-workflow.md) for the release guardrails and section mapping.
 
 ## Run locally
 
@@ -31,9 +31,10 @@ npm run lint
 
 - Responsive desktop, tablet and phone layouts
 - Dashboard, certificate list and in-progress certificate views
-- A–J certificate navigation aligned to the latest model form
+- A–J certificate navigation and field groups aligned to the latest model form
 - Contextual and persistent voice entry points
 - Listening, transcript review, confidence and apply states
-- Editable Section B form controls and local draft feedback
+- Editable certificate details, responsibilities, supply/earthing and circuit schedule controls
+- Clearly marked pending signing, emailing and PDF issue controls
 
 Speech recognition, model-based field mapping, persistence, authentication, signatures and PDF export are intentionally left for the backend/product integration phase.

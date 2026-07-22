@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Bell,
   Building2,
+  CircleAlert,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -19,6 +20,7 @@ import {
   Info,
   LayoutGrid,
   Lightbulb,
+  LockKeyhole,
   MapPin,
   Menu,
   Mic,
@@ -34,21 +36,15 @@ import {
   Volume2,
   X,
   Zap,
+  Download,
+  Mail,
+  PenTool,
 } from 'lucide-react'
 
 type Page = 'home' | 'certificate' | 'certificates'
 type VoiceState = 'idle' | 'listening' | 'review' | 'applied'
 
-type FormValues = {
-  clientName: string
-  certificateNo: string
-  address: string
-  postcode: string
-  installationType: string
-  description: string
-  extent: string
-  departures: string
-}
+type FormValues = Record<string, string>
 
 const initialValues: FormValues = {
   clientName: 'Maya Patel',
@@ -59,6 +55,42 @@ const initialValues: FormValues = {
   description: '',
   extent: '',
   departures: '',
+  clientAddress: '',
+  clientPostcode: '',
+  clientReference: '',
+  amendmentDate: '15 April 2026',
+  designerName: 'Alex Jones',
+  constructorName: 'Alex Jones',
+  inspectorName: 'Alex Jones',
+  nextInspection: '5 years',
+  designerCompany: 'AJ Electrical',
+  constructorCompany: 'AJ Electrical',
+  inspectorCompany: 'AJ Electrical',
+  signatoryAddress: '18 Park View, Birmingham',
+  signatoryPostcode: 'B13 9DE',
+  signatoryPhone: '0121 555 0188',
+  earthingArrangement: 'TN-C-S (PME)',
+  supplyPhase: '1-phase, 2-wire',
+  nominalVoltage: '230',
+  nominalFrequency: '50',
+  prospectiveFaultCurrent: '',
+  externalLoopImpedance: '',
+  mainSwitchType: 'RCD main switch',
+  mainSwitchRating: '100',
+  earthingConductor: '16',
+  bondingConductor: '10',
+  maxDemand: '',
+  distributionBoard: 'CU-01',
+  boardLocation: 'Hallway cupboard',
+  existingComments: '',
+  circuit1Description: 'Kitchen ring final circuit',
+  circuit1Ocpd: '32',
+  circuit1Zs: '',
+  circuit1Rcd: '30',
+  circuit2Description: 'Kitchen lighting',
+  circuit2Ocpd: '6',
+  circuit2Zs: '',
+  circuit2Rcd: '30',
 }
 
 const voiceMappings = [
@@ -73,17 +105,19 @@ const voiceMappings = [
 ]
 
 const certificateSections = [
-  { id: 'A', title: 'Client details', status: 'complete' },
-  { id: 'B', title: 'Installation details', status: 'current' },
-  { id: 'C', title: 'Certification', status: 'empty' },
-  { id: 'D', title: 'Next inspection', status: 'empty' },
-  { id: 'E', title: 'Signatories', status: 'empty' },
-  { id: 'F', title: 'Supply & earthing', status: 'empty' },
-  { id: 'G', title: 'Installation', status: 'empty' },
-  { id: 'H', title: 'Inspections', status: 'empty' },
-  { id: 'I', title: 'Comments', status: 'empty' },
-  { id: 'J', title: 'Schedules', status: 'empty' },
-]
+  { id: 'A', title: 'Client details', summary: 'The person or organisation commissioning the work.' },
+  { id: 'B', title: 'Installation details', summary: 'Describe the installation and its certified extent.' },
+  { id: 'C', title: 'Certification', summary: 'Confirm the accountable design, construction and inspection roles.' },
+  { id: 'D', title: 'Next inspection', summary: 'Set the recommended maximum interval.' },
+  { id: 'E', title: 'Signatories', summary: 'Company details for the accountable people.' },
+  { id: 'F', title: 'Supply & earthing', summary: 'Supply characteristics, earthing and protective conductors.' },
+  { id: 'G', title: 'Installation', summary: 'Distribution equipment and connected installation particulars.' },
+  { id: 'H', title: 'Inspections', summary: 'Record inspection outcomes before issuing.' },
+  { id: 'I', title: 'Comments', summary: 'Comment on an existing installation where relevant.' },
+  { id: 'J', title: 'Schedules', summary: 'Circuit details and measured test results.' },
+] as const
+
+type CertificateSectionId = (typeof certificateSections)[number]['id']
 
 const transcript =
   "This is a new installation at 24 Willow Lane, Birmingham, postcode B14 7QY. We've fitted a new consumer unit, a kitchen ring and new lighting circuits. The supply is TN-C-S, 230 volts. Certificate covers the consumer unit, kitchen ring and lighting only. Recommend the next inspection in five years."
@@ -93,6 +127,7 @@ function App() {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle')
   const [mobileVoiceOpen, setMobileVoiceOpen] = useState(false)
   const [values, setValues] = useState<FormValues>(initialValues)
+  const [activeSection, setActiveSection] = useState<CertificateSectionId>('B')
   const [saved, setSaved] = useState(true)
   const [toast, setToast] = useState('')
 
@@ -131,6 +166,9 @@ function App() {
       installationType: 'New installation',
       description: 'New consumer unit and kitchen circuits',
       extent: 'Consumer unit, kitchen ring and lighting',
+      earthingArrangement: 'TN-C-S (PME)',
+      nominalVoltage: '230',
+      nextInspection: '5 years',
     }))
     setVoiceState('applied')
     setSaved(false)
@@ -165,6 +203,8 @@ function App() {
             onSetVoiceState={setVoiceState}
             onApplyVoice={applyVoiceFields}
             onSave={saveDraft}
+            activeSection={activeSection}
+            onSelectSection={setActiveSection}
           />
         ) : page === 'home' ? (
           <HomePage onOpenCertificate={() => setPage('certificate')} onStartVoice={() => startVoice(true)} />
@@ -331,6 +371,8 @@ function CertificateWorkspace({
   onSetVoiceState,
   onApplyVoice,
   onSave,
+  activeSection,
+  onSelectSection,
 }: {
   values: FormValues
   completedFields: number
@@ -340,10 +382,18 @@ function CertificateWorkspace({
   onSetVoiceState: (state: VoiceState) => void
   onApplyVoice: () => void
   onSave: () => void
+  activeSection: CertificateSectionId
+  onSelectSection: (section: CertificateSectionId) => void
 }) {
+  const sectionIndex = certificateSections.findIndex((section) => section.id === activeSection)
+  const activeMeta = certificateSections[sectionIndex]
+  const progress = Math.max(18, Math.min(82, Math.round((completedFields / 80) * 100)))
+  const nextSection = certificateSections[Math.min(sectionIndex + 1, certificateSections.length - 1)]
+  const previousSection = certificateSections[Math.max(sectionIndex - 1, 0)]
+
   return (
     <div className="certificate-layout">
-      <CertificateOutline />
+      <CertificateOutline activeSection={activeSection} onSelectSection={onSelectSection} progress={progress} />
       <main className="form-canvas">
         <div className="certificate-identity">
           <div>
@@ -354,95 +404,54 @@ function CertificateWorkspace({
               <span><Clock3 size={15} /> Edited just now</span>
             </div>
           </div>
-          <div className="completion-ring" aria-label="18 percent complete">
+          <div className="completion-ring" aria-label={`${progress} percent complete`}>
             <svg viewBox="0 0 42 42"><circle className="ring-bg" cx="21" cy="21" r="16" /><circle className="ring-value" cx="21" cy="21" r="16" /></svg>
-            <span>18%</span>
+            <span>{progress}%</span>
           </div>
         </div>
 
         <div className="mobile-progress">
-          <div><span>Section B of 10</span><strong>18% complete</strong></div>
-          <div className="progress-track"><span style={{ width: '18%' }} /></div>
+          <div><span>Section {activeSection} of 10</span><strong>{progress}% complete</strong></div>
+          <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
         </div>
 
         <section className="form-card">
           <div className="section-heading">
-            <span className="section-letter">B</span>
+            <span className="section-letter">{activeSection}</span>
             <div>
-              <span className="section-kicker">Section B</span>
-              <h2>Installation details</h2>
-              <p>Describe the installation and exactly what this certificate covers.</p>
+              <span className="section-kicker">Section {activeSection}</span>
+              <h2>{activeMeta.title}</h2>
+              <p>{activeMeta.summary}</p>
             </div>
-            <span className="field-count"><Check size={14} /> {completedFields}/8 fields</span>
+            <span className="field-count"><Check size={14} /> Full EIC</span>
           </div>
 
           <div className="context-hint">
             <Sparkles size={18} />
-            <span><strong>Speak naturally.</strong> Say the address, what you installed and the extent covered — FieldCert will place each detail for you.</span>
+            <span><strong>Speak naturally.</strong> FieldCert maps your site notes to the right fields, then leaves you to check every value before it is used.</span>
             <button onClick={onStartVoice}><Mic size={17} /> Start talking</button>
           </div>
 
-          <div className="form-grid">
-            <Field label="Certificate number" className="span-half" hint="Generated automatically">
-              <TextInput value={values.certificateNo} onChange={(value) => onChange('certificateNo', value)} />
-            </Field>
-            <Field label="Client" className="span-half" status="from client details">
-              <TextInput value={values.clientName} onChange={(value) => onChange('clientName', value)} />
-            </Field>
-            <Field label="Installation address" className="span-main" required>
-              <TextInput
-                value={values.address}
-                placeholder="Start typing or use voice"
-                onChange={(value) => onChange('address', value)}
-                icon={<MapPin size={18} />}
-                onMic={onStartVoice}
-              />
-            </Field>
-            <Field label="Postcode" className="span-side" required>
-              <TextInput value={values.postcode} placeholder="e.g. B14 7QY" onChange={(value) => onChange('postcode', value)} />
-            </Field>
-            <Field label="Type of work" className="span-full" required>
-              <SegmentedControl
-                value={values.installationType}
-                options={['New installation', 'Addition', 'Alteration']}
-                onChange={(value) => onChange('installationType', value)}
-              />
-            </Field>
-            <Field label="Description of installation" className="span-full" required>
-              <TextArea
-                value={values.description}
-                placeholder="What was installed?"
-                onChange={(value) => onChange('description', value)}
-                onMic={onStartVoice}
-              />
-            </Field>
-            <Field label="Extent of installation covered by this certificate" className="span-full" required hint="Be specific about what is and isn't included.">
-              <TextArea
-                value={values.extent}
-                placeholder="e.g. Consumer unit and all final circuits"
-                onChange={(value) => onChange('extent', value)}
-                onMic={onStartVoice}
-              />
-            </Field>
-            <Field label="Departures from BS 7671" className="span-full" hint="Leave blank if there are no departures.">
-              <TextArea
-                value={values.departures}
-                placeholder="No departures recorded"
-                onChange={(value) => onChange('departures', value)}
-                onMic={onStartVoice}
-                compact
-              />
-            </Field>
-          </div>
+          <CertificateSectionFields section={activeSection} values={values} onChange={onChange} onStartVoice={onStartVoice} />
         </section>
 
         <div className="form-footer">
           <button className="button button--soft" onClick={onSave}>Save & close</button>
           <div>
-            <button className="button button--ghost"><ChevronLeft size={17} /> Previous</button>
-            <button className="button button--primary">Continue to certification <ArrowRight size={17} /></button>
+            <button className="button button--ghost" disabled={sectionIndex === 0} onClick={() => onSelectSection(previousSection.id)}><ChevronLeft size={17} /> Previous</button>
+            <button className="button button--primary" disabled={sectionIndex === certificateSections.length - 1} onClick={() => onSelectSection(nextSection.id)}>Continue to {nextSection.title.toLowerCase()} <ArrowRight size={17} /></button>
           </div>
         </div>
+
+        <section className="issue-card">
+          <div><LockKeyhole size={18} /><span><strong>Issue controls</strong><small>Available after the checks, signing and email services are connected.</small></span></div>
+          <div className="issue-card__actions">
+            <button className="button button--pending" disabled><CircleAlert size={15} /> Review required</button>
+            <button className="button button--pending" disabled><PenTool size={15} /> Sign certificate</button>
+            <button className="button button--pending" disabled><Mail size={15} /> Email client</button>
+            <button className="button button--pending" disabled><Download size={15} /> Download PDF</button>
+          </div>
+        </section>
       </main>
 
       <VoiceDock
@@ -457,21 +466,21 @@ function CertificateWorkspace({
   )
 }
 
-function CertificateOutline() {
+function CertificateOutline({ activeSection, onSelectSection, progress }: { activeSection: CertificateSectionId; onSelectSection: (section: CertificateSectionId) => void; progress: number }) {
   return (
     <aside className="certificate-outline">
       <div className="outline-heading">
         <span>Certificate sections</span>
         <button aria-label="Collapse certificate sections"><ChevronLeft size={16} /></button>
       </div>
-      <div className="outline-progress"><span style={{ width: '18%' }} /></div>
-      <div className="outline-progress-copy"><strong>18% complete</strong><span>1 of 10 sections</span></div>
+      <div className="outline-progress"><span style={{ width: `${progress}%` }} /></div>
+      <div className="outline-progress-copy"><strong>{progress}% complete</strong><span>Full certificate</span></div>
       <nav>
         {certificateSections.map((section) => (
-          <button key={section.id} className={`outline-item outline-item--${section.status}`}>
-            <span>{section.status === 'complete' ? <Check size={14} /> : section.id}</span>
+          <button key={section.id} onClick={() => onSelectSection(section.id)} className={`outline-item ${section.id === activeSection ? 'outline-item--current' : ''}`}>
+            <span>{section.id}</span>
             <strong>{section.title}</strong>
-            {section.status === 'current' && <ChevronRight size={15} />}
+            {section.id === activeSection && <ChevronRight size={15} />}
           </button>
         ))}
       </nav>
@@ -481,6 +490,120 @@ function CertificateOutline() {
       </div>
     </aside>
   )
+}
+
+function CertificateSectionFields({ section, values, onChange, onStartVoice }: { section: CertificateSectionId; values: FormValues; onChange: (key: string, value: string) => void; onStartVoice: () => void }) {
+  const input = (key: string, placeholder = '') => <TextInput value={values[key]} placeholder={placeholder} onChange={(value) => onChange(key, value)} />
+  const text = (key: string, placeholder: string, compact = false) => <TextArea value={values[key]} placeholder={placeholder} onChange={(value) => onChange(key, value)} onMic={onStartVoice} compact={compact} />
+
+  if (section === 'A') return <div className="form-grid">
+    <Field label="Certificate number" className="span-half" hint="Generated automatically">{input('certificateNo')}</Field>
+    <Field label="Client reference" className="span-half">{input('clientReference', 'Optional reference')}</Field>
+    <Field label="Client name" className="span-full" required>{input('clientName', 'Individual or organisation')}</Field>
+    <Field label="Client address" className="span-main" required>{text('clientAddress', 'Address for the certificate', true)}</Field>
+    <Field label="Client postcode" className="span-side">{input('clientPostcode', 'e.g. B14 7QY')}</Field>
+  </div>
+
+  if (section === 'B') return <div className="form-grid">
+    <Field label="Installation address" className="span-main" required><TextInput value={values.address} placeholder="Start typing or use voice" onChange={(value) => onChange('address', value)} icon={<MapPin size={18} />} onMic={onStartVoice} /></Field>
+    <Field label="Postcode" className="span-side" required>{input('postcode', 'e.g. B14 7QY')}</Field>
+    <Field label="Type of work" className="span-full" required><SegmentedControl value={values.installationType} options={['New installation', 'Addition', 'Alteration']} onChange={(value) => onChange('installationType', value)} /></Field>
+    <Field label="Description of installation" className="span-full" required>{text('description', 'What was installed?')}</Field>
+    <Field label="Extent covered by this certificate" className="span-full" required hint="Be specific about what is and isn't included.">{text('extent', 'e.g. Consumer unit and all final circuits')}</Field>
+    <Field label="Departures from BS 7671" className="span-full" hint="Leave blank if there are no departures.">{text('departures', 'No departures recorded', true)}</Field>
+  </div>
+
+  if (section === 'C') return <div className="form-grid">
+    <FormNotice text="Each person shown here certifies only the work for which they are responsible. Signing remains locked until the certificate is reviewed." />
+    <Field label="BS 7671 amendment date" className="span-half" required>{input('amendmentDate')}</Field>
+    <Field label="Risk assessment attached" className="span-half"><SegmentedControl value="No" options={['No', 'Yes']} onChange={() => undefined} /></Field>
+    <Field label="Designer" className="span-full" required>{input('designerName')}</Field>
+    <Field label="Constructor" className="span-full" required>{input('constructorName')}</Field>
+    <Field label="Inspector" className="span-full" required>{input('inspectorName')}</Field>
+  </div>
+
+  if (section === 'D') return <div className="form-grid">
+    <FormNotice text="This is a recommendation for further inspection and testing, not an automatic renewal date." />
+    <Field label="Recommended maximum interval" className="span-half" required>{input('nextInspection', 'e.g. 5 years')}</Field>
+    <Field label="Basis for recommendation" className="span-main">{text('inspectionBasis', 'Use, environment, maintenance and installation type', true)}</Field>
+  </div>
+
+  if (section === 'E') return <div className="form-grid">
+    <FormNotice text="These details identify the people and organisations responsible for the statements in Section C." />
+    <Field label="Designer — for/on behalf of" className="span-half" required>{input('designerCompany')}</Field>
+    <Field label="Constructor — for/on behalf of" className="span-half" required>{input('constructorCompany')}</Field>
+    <Field label="Inspector — for/on behalf of" className="span-full" required>{input('inspectorCompany')}</Field>
+    <Field label="Business address" className="span-main" required>{text('signatoryAddress', 'Business address', true)}</Field>
+    <Field label="Postcode" className="span-side" required>{input('signatoryPostcode')}</Field>
+    <Field label="Telephone" className="span-half">{input('signatoryPhone')}</Field>
+    <Field label="Registration / scheme number" className="span-half">{input('schemeNumber', 'Optional')}</Field>
+  </div>
+
+  if (section === 'F') return <div className="form-grid">
+    <FormNotice text="Capture measured values from the site. FieldCert will flag missing test data before an issue can be signed." />
+    <Field label="Earthing arrangement" className="span-half" required><SegmentedControl value={values.earthingArrangement} options={['TN-C-S (PME)', 'TN-S', 'TT']} onChange={(value) => onChange('earthingArrangement', value)} /></Field>
+    <Field label="Supply conductors" className="span-half" required><SegmentedControl value={values.supplyPhase} options={['1-phase, 2-wire', '3-phase, 4-wire']} onChange={(value) => onChange('supplyPhase', value)} /></Field>
+    <Field label="Nominal voltage (V)" className="span-half" required>{input('nominalVoltage', '230')}</Field>
+    <Field label="Nominal frequency (Hz)" className="span-half" required>{input('nominalFrequency', '50')}</Field>
+    <Field label="Prospective fault current Ipf (kA)" className="span-half">{input('prospectiveFaultCurrent', 'Measure or by enquiry')}</Field>
+    <Field label="External earth fault loop impedance Ze (Ω)" className="span-half">{input('externalLoopImpedance', 'Measure or by enquiry')}</Field>
+    <Field label="Main switch type" className="span-main">{input('mainSwitchType')}</Field>
+    <Field label="Main switch rating (A)" className="span-side">{input('mainSwitchRating')}</Field>
+    <Field label="Earthing conductor csa (mm²)" className="span-half">{input('earthingConductor')}</Field>
+    <Field label="Main bonding csa (mm²)" className="span-half">{input('bondingConductor')}</Field>
+  </div>
+
+  if (section === 'G') return <div className="form-grid">
+    <Field label="Maximum demand" className="span-half" required>{input('maxDemand', 'A or kVA')}</Field>
+    <Field label="Distribution board / consumer unit reference" className="span-half" required>{input('distributionBoard')}</Field>
+    <Field label="Distribution board location" className="span-full" required>{input('boardLocation')}</Field>
+    <Field label="Main protective measures" className="span-full">{text('protectiveMeasures', 'Automatic disconnection, additional protection, isolation and switching', true)}</Field>
+    <Field label="Other sources of supply" className="span-full">{text('otherSupply', 'PV, battery, generator, EV or none', true)}</Field>
+  </div>
+
+  if (section === 'H') return <InspectionSchedule />
+
+  if (section === 'I') return <div className="form-grid">
+    <FormNotice text="For additions or alterations, record any observations on the existing installation relevant to the safety of the new work." />
+    <Field label="Comments on the existing installation" className="span-full">{text('existingComments', 'No comments recorded')}</Field>
+    <Field label="Supporting continuation sheet" className="span-full"><PendingInline text="Attach photos and continuation sheets — coming soon" /></Field>
+  </div>
+
+  return <CircuitSchedules values={values} onChange={onChange} />
+}
+
+function FormNotice({ text }: { text: string }) {
+  return <div className="form-notice span-full"><ShieldCheck size={17} /> <span>{text}</span></div>
+}
+
+function PendingInline({ text }: { text: string }) {
+  return <span className="pending-inline"><LockKeyhole size={15} /> {text}</span>
+}
+
+function InspectionSchedule() {
+  const items = ['Supply characteristics and earthing arrangements', 'Basic protection and automatic disconnection', 'Additional protection and RCD provision', 'Distribution equipment and circuit identification', 'Isolation, switching and functional checks', 'Current-using equipment and special locations']
+  return <div className="inspection-list span-full">
+    <FormNotice text="Work through the schedule at site. Detailed outcomes will be required before the certificate can be issued." />
+    {items.map((item, index) => <div className="inspection-row" key={item}><span>{index + 1}.0</span><strong>{item}</strong><button className="inspection-outcome is-pending" disabled>Not checked</button></div>)}
+  </div>
+}
+
+function CircuitSchedules({ values, onChange }: { values: FormValues; onChange: (key: string, value: string) => void }) {
+  return <div className="schedule-wrap span-full">
+    <FormNotice text="Add each circuit and its test result. More rows, board schedules and continuation sheets will be enabled with the data backend." />
+    <div className="schedule-header"><div><span>Distribution board</span><strong>{values.distributionBoard || 'CU-01'}</strong></div><div><span>Location</span><strong>{values.boardLocation || 'Hallway cupboard'}</strong></div><button className="button button--pending" disabled><Plus size={15} /> Add circuit</button></div>
+    <div className="circuit-table">
+      <div className="circuit-table__head"><span>Circuit</span><span>Description</span><span>OCPD A</span><span>RCD mA</span><span>Measured Zs Ω</span></div>
+      {[1, 2].map((number) => <div className="circuit-table__row" key={number}>
+        <strong>{number}</strong>
+        <input value={values[`circuit${number}Description`]} onChange={(event) => onChange(`circuit${number}Description`, event.target.value)} />
+        <input value={values[`circuit${number}Ocpd`]} onChange={(event) => onChange(`circuit${number}Ocpd`, event.target.value)} />
+        <input value={values[`circuit${number}Rcd`]} onChange={(event) => onChange(`circuit${number}Rcd`, event.target.value)} />
+        <input value={values[`circuit${number}Zs`]} placeholder="Enter result" onChange={(event) => onChange(`circuit${number}Zs`, event.target.value)} />
+      </div>)}
+    </div>
+    <div className="schedule-footer"><CircleAlert size={16} /><span><strong>Test results incomplete.</strong> Measured Zs values are still required for the circuits shown.</span></div>
+  </div>
 }
 
 function Field({
