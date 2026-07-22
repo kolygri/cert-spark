@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import {
   ArrowLeft,
   ArrowRight,
@@ -40,6 +41,7 @@ import {
   Mail,
   PenTool,
 } from 'lucide-react'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 
 type Page = 'home' | 'certificate' | 'certificates'
 type VoiceState = 'idle' | 'listening' | 'review' | 'applied'
@@ -129,7 +131,20 @@ function App() {
   const [values, setValues] = useState<FormValues>(initialValues)
   const [activeSection, setActiveSection] = useState<CertificateSectionId>('B')
   const [saved, setSaved] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [session, setSession] = useState<Session | null>(null)
   const [toast, setToast] = useState('')
+
+  useEffect(() => {
+    if (!supabase) return
+
+    void supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
+    })
+
+    return () => authListener.subscription.unsubscribe()
+  }, [])
 
   useEffect(() => {
     if (voiceState !== 'listening') return
@@ -175,9 +190,99 @@ function App() {
     setToast('8 fields added — you’re still in control')
   }
 
-  const saveDraft = () => {
-    setSaved(true)
-    setToast('Draft saved on this device')
+  const signIn = async () => {
+    if (!supabase) {
+      setToast('Connect Supabase to enable sign-in')
+      return
+    }
+
+    const email = window.prompt('Enter your work email to receive a secure sign-in link.')?.trim()
+    if (!email) return
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    })
+    setToast(error ? error.message : 'Check your email for your secure sign-in link')
+  }
+
+  const saveDraft = async () => {
+    if (!supabase) {
+      setSaved(true)
+      setToast('Demo draft saved on this device')
+      return
+    }
+
+    if (!session) {
+      setToast('Sign in before saving this certificate')
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const { data: membership, error: membershipError } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', session.user.id)
+        .limit(1)
+        .maybeSingle()
+      if (membershipError) throw membershipError
+
+      let organizationId = membership?.organization_id
+      if (!organizationId) {
+        const { data: newOrganizationId, error: organizationError } = await supabase.rpc(
+          'create_organization_with_owner',
+          { organization_name: 'AJ Electrical' },
+        )
+        if (organizationError) throw organizationError
+        organizationId = newOrganizationId
+      }
+
+      const { data: existingClient, error: clientLookupError } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('name', values.clientName || 'Unassigned client')
+        .limit(1)
+        .maybeSingle()
+      if (clientLookupError) throw clientLookupError
+
+      let clientId = existingClient?.id
+      if (!clientId) {
+        const { data: newClient, error: clientError } = await supabase
+          .from('clients')
+          .insert({
+            organization_id: organizationId,
+            name: values.clientName || 'Unassigned client',
+            address: { address: values.clientAddress, postcode: values.clientPostcode },
+          })
+          .select('id')
+          .single()
+        if (clientError) throw clientError
+        clientId = newClient.id
+      }
+
+      const { error: certificateError } = await supabase.from('certificates').upsert(
+        {
+          organization_id: organizationId,
+          client_id: clientId,
+          certificate_number: values.certificateNo || 'DRAFT',
+          title: values.address ? `${values.address} electrical installation` : 'Untitled electrical installation',
+          installation_address: { address: values.address, postcode: values.postcode },
+          certificate_data: values,
+          created_by: session.user.id,
+        },
+        { onConflict: 'organization_id,certificate_number' },
+      )
+      if (certificateError) throw certificateError
+
+      setSaved(true)
+      setToast('Draft saved securely to your FieldCert workspace')
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not save the draft')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -191,6 +296,9 @@ function App() {
           certificateNo={values.certificateNo}
           onBack={() => setPage('home')}
           onSave={saveDraft}
+          isSaving={isSaving}
+          isSignedIn={Boolean(session)}
+          onSignIn={signIn}
         />
 
         {page === 'certificate' ? (
@@ -325,12 +433,18 @@ function TopBar({
   certificateNo,
   onBack,
   onSave,
+  isSaving,
+  isSignedIn,
+  onSignIn,
 }: {
   page: Page
   saved: boolean
   certificateNo: string
   onBack: () => void
   onSave: () => void
+  isSaving: boolean
+  isSignedIn: boolean
+  onSignIn: () => void
 }) {
   const label = page === 'certificate' ? certificateNo : page === 'home' ? 'Home' : 'Certificates'
   return (
@@ -350,11 +464,13 @@ function TopBar({
         {page === 'certificate' && (
           <>
             <span className={`save-state ${saved ? '' : 'save-state--pending'}`}>
-              <span /> {saved ? 'Saved' : 'Unsaved changes'}
+              <span /> {isSaving ? 'Saving…' : saved ? 'Saved' : 'Unsaved changes'}
             </span>
-            <button className="button button--soft" onClick={onSave}>Save draft</button>
+            <button className="button button--soft" onClick={onSave} disabled={isSaving}>{isSaving ? 'Saving…' : 'Save draft'}</button>
           </>
         )}
+        {!isSupabaseConfigured && <span className="demo-state">Demo mode</span>}
+        {!isSignedIn && isSupabaseConfigured && <button className="button button--soft" onClick={onSignIn}>Sign in</button>}
         <button className="icon-button" aria-label="Notifications"><Bell size={19} /><i /></button>
         <span className="top-avatar">AJ</span>
       </div>

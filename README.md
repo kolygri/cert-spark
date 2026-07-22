@@ -37,4 +37,15 @@ npm run lint
 - Editable certificate details, responsibilities, supply/earthing and circuit schedule controls
 - Clearly marked pending signing, emailing and PDF issue controls
 
-Speech recognition, model-based field mapping, persistence, authentication, signatures and PDF export are intentionally left for the backend/product integration phase.
+Speech recognition, model-based field mapping, signatures and PDF export remain intentionally unavailable while the production workflow is completed.
+
+## Supabase connection
+
+The app works as a UI demo without Supabase. To enable email sign-in and secure cloud draft saving, add these Vercel environment variables for **Production**, **Preview** and **Development**:
+
+```text
+VITE_SUPABASE_URL
+VITE_SUPABASE_PUBLISHABLE_KEY
+```
+
+Get both values from Supabase **Project Settings → API**. The publishable key is designed for browser use; do not add the `service_role` key to Vercel or the client app. After adding the values, redeploy from Vercel or push a commit.

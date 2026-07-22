@@ -159,6 +159,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .save-state { display: flex; align-items: center; gap: 6px; margin-right: 5px; color: #74868e; font-size: 10px; }
 .save-state span { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
 .save-state--pending span { background: var(--amber); }
+.demo-state { border: 1px solid #f1d39d; border-radius: 99px; padding: 5px 8px; color: #9a6714; background: #fff8e8; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .icon-button { position: relative; width: 37px; height: 37px; border: 1px solid var(--line); border-radius: 9px; }
 .icon-button i { position: absolute; top: 8px; right: 8px; width: 5px; height: 5px; border: 1px solid #fff; border-radius: 50%; background: #e96e65; }
 .top-avatar { width: 35px; height: 35px; margin-left: 2px; }
