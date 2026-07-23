@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
   ArrowLeft,
@@ -47,6 +47,7 @@ type Page = 'home' | 'certificate' | 'certificates'
 type VoiceState = 'idle' | 'listening' | 'review' | 'applied'
 
 type FormValues = Record<string, string>
+type VoiceMapping = { field: keyof FormValues; label: string; value: string; confidence: number; evidence: string }
 
 const initialValues: FormValues = {
   clientName: 'Maya Patel',
@@ -95,17 +96,6 @@ const initialValues: FormValues = {
   circuit2Rcd: '30',
 }
 
-const voiceMappings = [
-  { label: 'Installation address', value: '24 Willow Lane, Birmingham', confidence: 98 },
-  { label: 'Postcode', value: 'B14 7QY', confidence: 98 },
-  { label: 'Work type', value: 'New installation', confidence: 96 },
-  { label: 'Description', value: 'New consumer unit and kitchen circuits', confidence: 94 },
-  { label: 'Extent covered', value: 'Consumer unit, kitchen ring and lighting', confidence: 91 },
-  { label: 'Earthing arrangement', value: 'TN-C-S (PME)', confidence: 97 },
-  { label: 'Nominal voltage', value: '230 V', confidence: 99 },
-  { label: 'Next inspection', value: '5 years', confidence: 92 },
-]
-
 const certificateSections = [
   { id: 'A', title: 'Client details', summary: 'The person or organisation commissioning the work.' },
   { id: 'B', title: 'Installation details', summary: 'Describe the installation and its certified extent.' },
@@ -121,9 +111,6 @@ const certificateSections = [
 
 type CertificateSectionId = (typeof certificateSections)[number]['id']
 
-const transcript =
-  "This is a new installation at 24 Willow Lane, Birmingham, postcode B14 7QY. We've fitted a new consumer unit, a kitchen ring and new lighting circuits. The supply is TN-C-S, 230 volts. Certificate covers the consumer unit, kitchen ring and lighting only. Recommend the next inspection in five years."
-
 function App() {
   const [page, setPage] = useState<Page>('certificate')
   const [voiceState, setVoiceState] = useState<VoiceState>('idle')
@@ -133,7 +120,11 @@ function App() {
   const [saved, setSaved] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
+  const [voiceMappings, setVoiceMappings] = useState<VoiceMapping[]>([])
+  const [transcript, setTranscript] = useState('')
   const [toast, setToast] = useState('')
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
     if (!supabase) return
@@ -146,11 +137,7 @@ function App() {
     return () => authListener.subscription.unsubscribe()
   }, [])
 
-  useEffect(() => {
-    if (voiceState !== 'listening') return
-    const timer = window.setTimeout(() => setVoiceState('review'), 2400)
-    return () => window.clearTimeout(timer)
-  }, [voiceState])
+  useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), [])
 
   useEffect(() => {
     if (!toast) return
@@ -168,26 +155,61 @@ function App() {
     setSaved(false)
   }
 
-  const startVoice = (mobile = false) => {
-    setVoiceState('listening')
-    if (mobile) setMobileVoiceOpen(true)
+  const startVoice = async (mobile = false) => {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setToast('Voice capture is not supported by this browser')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      const chunks: BlobPart[] = []
+      streamRef.current = stream
+      recorderRef.current = recorder
+      recorder.ondataavailable = (event) => chunks.push(event.data)
+      recorder.onstop = async () => {
+        try {
+          setToast('Turning your site note into certificate fields…')
+          const audio = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+          const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } }
+          if (!data.session?.access_token) throw new Error('Sign in before using voice capture')
+          const result = await fetch('/api/voice', {
+            method: 'POST',
+            headers: { 'Content-Type': audio.type, Authorization: `Bearer ${data.session.access_token}` },
+            body: audio,
+          })
+          const payload = await result.json()
+          if (!result.ok) throw new Error(payload.error || 'Voice processing failed')
+          setTranscript(payload.transcript)
+          setVoiceMappings(payload.suggestions)
+          setVoiceState('review')
+          if (!payload.suggestions.length) setToast('No certificate fields were found — try a more specific note')
+        } catch (error) {
+          setVoiceState('idle')
+          setToast(error instanceof Error ? error.message : 'Voice processing failed')
+        } finally {
+          stream.getTracks().forEach((track) => track.stop())
+          streamRef.current = null
+          recorderRef.current = null
+        }
+      }
+      recorder.start()
+      setVoiceState('listening')
+      if (mobile) setMobileVoiceOpen(true)
+    } catch {
+      setToast('Microphone access was not granted')
+    }
+  }
+
+  const stopVoice = () => {
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
   }
 
   const applyVoiceFields = () => {
-    setValues((current) => ({
-      ...current,
-      address: '24 Willow Lane, Birmingham',
-      postcode: 'B14 7QY',
-      installationType: 'New installation',
-      description: 'New consumer unit and kitchen circuits',
-      extent: 'Consumer unit, kitchen ring and lighting',
-      earthingArrangement: 'TN-C-S (PME)',
-      nominalVoltage: '230',
-      nextInspection: '5 years',
-    }))
+    setValues((current) => ({ ...current, ...Object.fromEntries(voiceMappings.map((mapping) => [mapping.field, mapping.value])) }))
     setVoiceState('applied')
     setSaved(false)
-    setToast('8 fields added — you’re still in control')
+    setToast(`${voiceMappings.length} fields added — you’re still in control`)
   }
 
   const signIn = async () => {
@@ -287,7 +309,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <DesktopRail page={page} onNavigate={setPage} onVoice={() => startVoice(false)} />
+      <DesktopRail page={page} onNavigate={setPage} onVoice={() => void startVoice(false)} />
 
       <div className="app-stage">
         <TopBar
@@ -307,28 +329,33 @@ function App() {
             completedFields={completedFields}
             voiceState={voiceState}
             onChange={updateValue}
-            onStartVoice={() => startVoice(false)}
+            onStartVoice={() => void startVoice(false)}
             onSetVoiceState={setVoiceState}
             onApplyVoice={applyVoiceFields}
+            onStopVoice={stopVoice}
+            voiceMappings={voiceMappings}
+            transcript={transcript}
             onSave={saveDraft}
             activeSection={activeSection}
             onSelectSection={setActiveSection}
           />
         ) : page === 'home' ? (
-          <HomePage onOpenCertificate={() => setPage('certificate')} onStartVoice={() => startVoice(true)} />
+          <HomePage onOpenCertificate={() => setPage('certificate')} onStartVoice={() => void startVoice(true)} />
         ) : (
           <CertificatesPage onOpenCertificate={() => setPage('certificate')} />
         )}
       </div>
 
-      <MobileNavigation page={page} onNavigate={setPage} onVoice={() => startVoice(true)} />
+      <MobileNavigation page={page} onNavigate={setPage} onVoice={() => void startVoice(true)} />
 
       {mobileVoiceOpen && (
         <MobileVoiceSheet
           state={voiceState}
           onClose={() => setMobileVoiceOpen(false)}
-          onRestart={() => setVoiceState('listening')}
-          onReview={() => setVoiceState('review')}
+          onRestart={() => void startVoice(true)}
+          onReview={stopVoice}
+          voiceMappings={voiceMappings}
+          transcript={transcript}
           onApply={() => {
             applyVoiceFields()
             window.setTimeout(() => setMobileVoiceOpen(false), 900)
@@ -486,6 +513,9 @@ function CertificateWorkspace({
   onStartVoice,
   onSetVoiceState,
   onApplyVoice,
+  onStopVoice,
+  voiceMappings,
+  transcript,
   onSave,
   activeSection,
   onSelectSection,
@@ -497,6 +527,9 @@ function CertificateWorkspace({
   onStartVoice: () => void
   onSetVoiceState: (state: VoiceState) => void
   onApplyVoice: () => void
+  onStopVoice: () => void
+  voiceMappings: VoiceMapping[]
+  transcript: string
   onSave: () => void
   activeSection: CertificateSectionId
   onSelectSection: (section: CertificateSectionId) => void
@@ -574,9 +607,11 @@ function CertificateWorkspace({
         state={voiceState}
         onStart={onStartVoice}
         onRestart={() => onSetVoiceState('listening')}
-        onReview={() => onSetVoiceState('review')}
+        onReview={onStopVoice}
         onCancel={() => onSetVoiceState('idle')}
         onApply={onApplyVoice}
+        voiceMappings={voiceMappings}
+        transcript={transcript}
       />
     </div>
   )
@@ -811,6 +846,8 @@ function VoiceDock({
   onReview,
   onCancel,
   onApply,
+  voiceMappings,
+  transcript,
 }: {
   state: VoiceState
   onStart: () => void
@@ -818,12 +855,14 @@ function VoiceDock({
   onReview: () => void
   onCancel: () => void
   onApply: () => void
+  voiceMappings: VoiceMapping[]
+  transcript: string
 }) {
   return (
     <aside className={`voice-dock voice-dock--${state}`}>
       {state === 'idle' && <VoiceIdle onStart={onStart} />}
       {state === 'listening' && <VoiceListening onCancel={onCancel} onReview={onReview} />}
-      {state === 'review' && <VoiceReview onRestart={onRestart} onApply={onApply} compact />}
+      {state === 'review' && <VoiceReview onRestart={onRestart} onApply={onApply} mappings={voiceMappings} transcript={transcript} compact />}
       {state === 'applied' && <VoiceApplied onStart={onStart} />}
     </aside>
   )
@@ -873,12 +912,12 @@ function Waveform() {
   return <div className="waveform" aria-hidden="true">{bars.map((height, index) => <i key={index} style={{ height }} />)}</div>
 }
 
-function VoiceReview({ onRestart, onApply, compact = false }: { onRestart: () => void; onApply: () => void; compact?: boolean }) {
+function VoiceReview({ onRestart, onApply, mappings, transcript, compact = false }: { onRestart: () => void; onApply: () => void; mappings: VoiceMapping[]; transcript: string; compact?: boolean }) {
   const [showTranscript, setShowTranscript] = useState(false)
   return (
     <>
       <div className="voice-dock__top">
-        <span><Sparkles size={16} /> {voiceMappings.length} fields found</span>
+        <span><Sparkles size={16} /> {mappings.length} fields found</span>
         <button onClick={onRestart} aria-label="Record again"><RotateCcw size={17} /></button>
       </div>
       <div className="review-summary">
@@ -890,7 +929,7 @@ function VoiceReview({ onRestart, onApply, compact = false }: { onRestart: () =>
       </button>
       {showTranscript && <p className="transcript">{transcript}</p>}
       <div className={`mapping-list ${compact ? 'mapping-list--compact' : ''}`}>
-        {voiceMappings.map((mapping) => (
+        {mappings.map((mapping) => (
           <div className="mapping-row" key={mapping.label}>
             <div><span>{mapping.label}</span><strong>{mapping.value}</strong></div>
             <span className={`confidence ${mapping.confidence < 93 ? 'confidence--check' : ''}`}>{mapping.confidence < 93 ? 'Check' : `${mapping.confidence}%`}</span>
@@ -899,7 +938,7 @@ function VoiceReview({ onRestart, onApply, compact = false }: { onRestart: () =>
         ))}
       </div>
       <div className="review-actions">
-        <button className="button button--primary button--full" onClick={onApply}>Apply {voiceMappings.length} fields <ArrowRight size={17} /></button>
+        <button className="button button--primary button--full" onClick={onApply}>Apply {mappings.length} fields <ArrowRight size={17} /></button>
         <button className="button button--ghost button--full" onClick={onRestart}><Mic size={16} /> Record again</button>
       </div>
     </>
@@ -924,12 +963,16 @@ function MobileVoiceSheet({
   onRestart,
   onReview,
   onApply,
+  voiceMappings,
+  transcript,
 }: {
   state: VoiceState
   onClose: () => void
   onRestart: () => void
   onReview: () => void
   onApply: () => void
+  voiceMappings: VoiceMapping[]
+  transcript: string
 }) {
   return (
     <div className="voice-sheet-backdrop" role="dialog" aria-modal="true" aria-label="Voice assistant">
@@ -946,7 +989,7 @@ function MobileVoiceSheet({
             <button className="mobile-stop" onClick={onReview}><span /> Stop & review</button>
           </div>
         )}
-        {state === 'review' && <div className="mobile-review"><VoiceReview onRestart={onRestart} onApply={onApply} /></div>}
+        {state === 'review' && <div className="mobile-review"><VoiceReview onRestart={onRestart} onApply={onApply} mappings={voiceMappings} transcript={transcript} /></div>}
         {state === 'applied' && <VoiceApplied onStart={onRestart} />}
         {state === 'idle' && <VoiceIdle onStart={onRestart} />}
       </div>
