@@ -49,6 +49,8 @@ type VoiceState = 'idle' | 'listening' | 'review' | 'applied'
 type FormValues = Record<string, string>
 type VoiceMapping = { field: keyof FormValues; label: string; value: string; confidence: number; evidence: string }
 
+const invalidVoiceValues = new Set(['', 'n/a', 'none', 'unknown', 'unspecified', 'not mentioned', 'not provided', 'not specified', 'not stated'])
+
 const initialValues: FormValues = {
   clientName: 'Maya Patel',
   certificateNo: 'EIC-2026-0042',
@@ -121,10 +123,13 @@ function App() {
   const [isSaving, setIsSaving] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
   const [voiceMappings, setVoiceMappings] = useState<VoiceMapping[]>([])
+  const [appliedVoiceFieldCount, setAppliedVoiceFieldCount] = useState(0)
+  const [appliedLowConfidenceCount, setAppliedLowConfidenceCount] = useState(0)
   const [transcript, setTranscript] = useState('')
   const [toast, setToast] = useState('')
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const cancelledRecordersRef = useRef(new WeakSet<MediaRecorder>())
 
   useEffect(() => {
     if (!supabase) return
@@ -168,6 +173,10 @@ function App() {
       recorderRef.current = recorder
       recorder.ondataavailable = (event) => chunks.push(event.data)
       recorder.onstop = async () => {
+        if (cancelledRecordersRef.current.has(recorder)) {
+          stream.getTracks().forEach((track) => track.stop())
+          return
+        }
         try {
           setToast('Turning your site note into certificate fields…')
           const audio = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
@@ -205,11 +214,32 @@ function App() {
     if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
   }
 
+  const cancelVoice = () => {
+    const recorder = recorderRef.current
+    if (recorder?.state === 'recording') {
+      cancelledRecordersRef.current.add(recorder)
+      recorder.stop()
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    recorderRef.current = null
+    setVoiceState('idle')
+  }
+
   const applyVoiceFields = () => {
-    setValues((current) => ({ ...current, ...Object.fromEntries(voiceMappings.map((mapping) => [mapping.field, mapping.value])) }))
+    const applicableMappings = voiceMappings.filter(
+      (mapping) => !invalidVoiceValues.has(mapping.value.trim().toLowerCase()),
+    )
+    if (!applicableMappings.length) {
+      setToast('No valid certificate fields to apply')
+      return
+    }
+    setValues((current) => ({ ...current, ...Object.fromEntries(applicableMappings.map((mapping) => [mapping.field, mapping.value])) }))
+    setAppliedVoiceFieldCount(applicableMappings.length)
+    setAppliedLowConfidenceCount(applicableMappings.filter((mapping) => mapping.confidence < 93).length)
     setVoiceState('applied')
     setSaved(false)
-    setToast(`${voiceMappings.length} fields added — you’re still in control`)
+    setToast(`${applicableMappings.length} fields added — you’re still in control`)
   }
 
   const signIn = async () => {
@@ -330,10 +360,13 @@ function App() {
             voiceState={voiceState}
             onChange={updateValue}
             onStartVoice={() => void startVoice(false)}
-            onSetVoiceState={setVoiceState}
+            onRestartVoice={() => void startVoice(false)}
+            onCancelVoice={cancelVoice}
             onApplyVoice={applyVoiceFields}
             onStopVoice={stopVoice}
             voiceMappings={voiceMappings}
+            appliedVoiceFieldCount={appliedVoiceFieldCount}
+            appliedLowConfidenceCount={appliedLowConfidenceCount}
             transcript={transcript}
             onSave={saveDraft}
             activeSection={activeSection}
@@ -355,6 +388,8 @@ function App() {
           onRestart={() => void startVoice(true)}
           onReview={stopVoice}
           voiceMappings={voiceMappings}
+          appliedVoiceFieldCount={appliedVoiceFieldCount}
+          appliedLowConfidenceCount={appliedLowConfidenceCount}
           transcript={transcript}
           onApply={() => {
             applyVoiceFields()
@@ -511,10 +546,13 @@ function CertificateWorkspace({
   voiceState,
   onChange,
   onStartVoice,
-  onSetVoiceState,
+  onRestartVoice,
+  onCancelVoice,
   onApplyVoice,
   onStopVoice,
   voiceMappings,
+  appliedVoiceFieldCount,
+  appliedLowConfidenceCount,
   transcript,
   onSave,
   activeSection,
@@ -525,10 +563,13 @@ function CertificateWorkspace({
   voiceState: VoiceState
   onChange: (key: keyof FormValues, value: string) => void
   onStartVoice: () => void
-  onSetVoiceState: (state: VoiceState) => void
+  onRestartVoice: () => void
+  onCancelVoice: () => void
   onApplyVoice: () => void
   onStopVoice: () => void
   voiceMappings: VoiceMapping[]
+  appliedVoiceFieldCount: number
+  appliedLowConfidenceCount: number
   transcript: string
   onSave: () => void
   activeSection: CertificateSectionId
@@ -606,11 +647,13 @@ function CertificateWorkspace({
       <VoiceDock
         state={voiceState}
         onStart={onStartVoice}
-        onRestart={() => onSetVoiceState('listening')}
+        onRestart={onRestartVoice}
         onReview={onStopVoice}
-        onCancel={() => onSetVoiceState('idle')}
+        onCancel={onCancelVoice}
         onApply={onApplyVoice}
         voiceMappings={voiceMappings}
+        appliedVoiceFieldCount={appliedVoiceFieldCount}
+        appliedLowConfidenceCount={appliedLowConfidenceCount}
         transcript={transcript}
       />
     </div>
@@ -847,6 +890,8 @@ function VoiceDock({
   onCancel,
   onApply,
   voiceMappings,
+  appliedVoiceFieldCount,
+  appliedLowConfidenceCount,
   transcript,
 }: {
   state: VoiceState
@@ -856,6 +901,8 @@ function VoiceDock({
   onCancel: () => void
   onApply: () => void
   voiceMappings: VoiceMapping[]
+  appliedVoiceFieldCount: number
+  appliedLowConfidenceCount: number
   transcript: string
 }) {
   return (
@@ -863,7 +910,7 @@ function VoiceDock({
       {state === 'idle' && <VoiceIdle onStart={onStart} />}
       {state === 'listening' && <VoiceListening onCancel={onCancel} onReview={onReview} />}
       {state === 'review' && <VoiceReview onRestart={onRestart} onApply={onApply} mappings={voiceMappings} transcript={transcript} compact />}
-      {state === 'applied' && <VoiceApplied onStart={onStart} />}
+      {state === 'applied' && <VoiceApplied onStart={onStart} fieldCount={appliedVoiceFieldCount} reviewCount={appliedLowConfidenceCount} />}
     </aside>
   )
 }
@@ -938,20 +985,22 @@ function VoiceReview({ onRestart, onApply, mappings, transcript, compact = false
         ))}
       </div>
       <div className="review-actions">
-        <button className="button button--primary button--full" onClick={onApply}>Apply {mappings.length} fields <ArrowRight size={17} /></button>
+        <button className="button button--primary button--full" onClick={onApply} disabled={!mappings.length}>Apply {mappings.length} fields <ArrowRight size={17} /></button>
         <button className="button button--ghost button--full" onClick={onRestart}><Mic size={16} /> Record again</button>
       </div>
     </>
   )
 }
 
-function VoiceApplied({ onStart }: { onStart: () => void }) {
+function VoiceApplied({ onStart, fieldCount, reviewCount }: { onStart: () => void; fieldCount: number; reviewCount: number }) {
   return (
     <div className="applied-state">
       <div className="applied-check"><Check size={28} /></div>
       <span>Details added</span>
-      <h3>8 fields updated</h3>
-      <p>Two lower-confidence fields are marked for review before signing.</p>
+      <h3>{fieldCount} {fieldCount === 1 ? 'field' : 'fields'} updated</h3>
+      <p>{reviewCount
+        ? `${reviewCount} lower-confidence ${reviewCount === 1 ? 'field is' : 'fields are'} marked for review before signing.`
+        : 'All applied fields met the confidence threshold.'}</p>
       <button className="button button--voice" onClick={onStart}><Mic size={17} /> Add more by voice</button>
     </div>
   )
@@ -964,6 +1013,8 @@ function MobileVoiceSheet({
   onReview,
   onApply,
   voiceMappings,
+  appliedVoiceFieldCount,
+  appliedLowConfidenceCount,
   transcript,
 }: {
   state: VoiceState
@@ -972,6 +1023,8 @@ function MobileVoiceSheet({
   onReview: () => void
   onApply: () => void
   voiceMappings: VoiceMapping[]
+  appliedVoiceFieldCount: number
+  appliedLowConfidenceCount: number
   transcript: string
 }) {
   return (
@@ -990,7 +1043,7 @@ function MobileVoiceSheet({
           </div>
         )}
         {state === 'review' && <div className="mobile-review"><VoiceReview onRestart={onRestart} onApply={onApply} mappings={voiceMappings} transcript={transcript} /></div>}
-        {state === 'applied' && <VoiceApplied onStart={onRestart} />}
+        {state === 'applied' && <VoiceApplied onStart={onRestart} fieldCount={appliedVoiceFieldCount} reviewCount={appliedLowConfidenceCount} />}
         {state === 'idle' && <VoiceIdle onStart={onRestart} />}
       </div>
     </div>

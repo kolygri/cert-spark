@@ -9,6 +9,60 @@ const editableFields = [
   'circuit1Rcd', 'circuit1Zs', 'circuit2Description', 'circuit2Ocpd', 'circuit2Rcd', 'circuit2Zs',
 ]
 
+const editableFieldSet = new Set(editableFields)
+const placeholderValuePattern = /^(?:n\/?a|none|unknown|unspecified|not (?:mentioned|provided|specified|stated))$/i
+
+export function normalizeTranscript(value) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeEvidence(value) {
+  return value
+    .toLocaleLowerCase('en-GB')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+export function sanitizeSuggestions(suggestions, transcript) {
+  const normalizedTranscript = normalizeEvidence(normalizeTranscript(transcript))
+  if (!normalizedTranscript || !Array.isArray(suggestions)) return []
+
+  const suggestionsByField = new Map()
+
+  for (const suggestion of suggestions) {
+    if (!suggestion || !editableFieldSet.has(suggestion.field)) continue
+
+    const value = typeof suggestion.value === 'string' ? suggestion.value.trim() : ''
+    const evidence = typeof suggestion.evidence === 'string' ? suggestion.evidence.trim() : ''
+    const normalizedEvidence = normalizeEvidence(evidence)
+    if (
+      !value
+      || placeholderValuePattern.test(value)
+      || !normalizedEvidence
+      || !normalizedTranscript.includes(normalizedEvidence)
+    ) continue
+
+    const confidence = Number.isFinite(suggestion.confidence)
+      ? Math.min(100, Math.max(0, Math.round(suggestion.confidence)))
+      : 0
+    const sanitized = {
+      field: suggestion.field,
+      label: typeof suggestion.label === 'string' && suggestion.label.trim()
+        ? suggestion.label.trim()
+        : suggestion.field,
+      value,
+      confidence,
+      evidence,
+    }
+    const existing = suggestionsByField.get(suggestion.field)
+    if (!existing || sanitized.confidence > existing.confidence) {
+      suggestionsByField.set(suggestion.field, sanitized)
+    }
+  }
+
+  return [...suggestionsByField.values()]
+}
+
 const responseSchema = {
   name: 'certificate_field_suggestions',
   strict: true,
@@ -85,6 +139,8 @@ export default async function handler(request, response) {
       headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: audioForm,
     })
+    const transcript = normalizeTranscript(transcription.text)
+    if (!transcript) return response.status(200).json({ transcript: '', suggestions: [] })
 
     const extraction = await openAiJson('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -99,15 +155,16 @@ export default async function handler(request, response) {
         messages: [
           {
             role: 'system',
-            content: 'You map a UK electrician\'s spoken site note to an Electrical Installation Certificate. Suggest only facts explicitly stated. Never invent a reading, person, address, compliance result, departure, signature, or date. Use the permitted field names. Keep values concise. Use lower confidence for ambiguous speech.',
+            content: 'You map a UK electrician\'s spoken site note to an Electrical Installation Certificate. Return suggestions only for facts explicitly stated in the transcript. Omit every unmentioned field: never return placeholders such as "Not specified", "Unknown", "N/A", or inferred defaults. Never invent a reading, person, address, compliance result, departure, signature, or date. Evidence must be an exact non-empty excerpt from the transcript that supports the value. Use the permitted field names. Keep values concise. Use lower confidence for ambiguous speech.',
           },
-          { role: 'user', content: transcription.text },
+          { role: 'user', content: transcript },
         ],
       }),
     })
 
     const mapping = JSON.parse(extraction.choices?.[0]?.message?.content || '{"suggestions":[]}')
-    return response.status(200).json({ transcript: transcription.text, suggestions: mapping.suggestions })
+    const suggestions = sanitizeSuggestions(mapping.suggestions, transcript)
+    return response.status(200).json({ transcript, suggestions })
   } catch (error) {
     return response.status(500).json({ error: error instanceof Error ? error.message : 'Voice processing failed.' })
   }
