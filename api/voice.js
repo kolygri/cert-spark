@@ -23,6 +23,42 @@ function normalizeEvidence(value) {
     .trim()
 }
 
+function normalizeFieldAndValue(field, value, normalizedEvidence) {
+  let normalizedField = field
+  let normalizedValue = value
+
+  if (
+    field === 'clientAddress'
+    && /\b(?:installation|property|site)\b.*\bat\b/.test(normalizedEvidence)
+    && !/\bclient\b|\bcustomer\b/.test(normalizedEvidence)
+  ) {
+    normalizedField = 'address'
+  }
+
+  if (normalizedField === 'installationType') {
+    const installationType = normalizeEvidence(value)
+    if (installationType === 'new' || installationType === 'new installation') normalizedValue = 'New installation'
+    else if (installationType === 'addition') normalizedValue = 'Addition'
+    else if (installationType === 'alteration') normalizedValue = 'Alteration'
+    else return null
+  }
+
+  if (normalizedField === 'earthingArrangement') {
+    const earthingArrangement = normalizeEvidence(value).replaceAll(' ', '')
+    if (earthingArrangement === 'tncs' || earthingArrangement === 'tncspme') normalizedValue = 'TN-C-S (PME)'
+    else if (earthingArrangement === 'tns') normalizedValue = 'TN-S'
+    else if (earthingArrangement === 'tt') normalizedValue = 'TT'
+  }
+
+  if (normalizedField === 'postcode' || normalizedField === 'clientPostcode') {
+    const compactPostcode = value.toUpperCase().replace(/\s+/g, '')
+    if (!/^(?:GIR0AA|[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2})$/.test(compactPostcode)) return null
+    normalizedValue = `${compactPostcode.slice(0, -3)} ${compactPostcode.slice(-3)}`
+  }
+
+  return { field: normalizedField, value: normalizedValue }
+}
+
 export function sanitizeSuggestions(suggestions, transcript) {
   const normalizedTranscript = normalizeEvidence(normalizeTranscript(transcript))
   if (!normalizedTranscript || !Array.isArray(suggestions)) return []
@@ -42,21 +78,24 @@ export function sanitizeSuggestions(suggestions, transcript) {
       || !normalizedTranscript.includes(normalizedEvidence)
     ) continue
 
+    const normalized = normalizeFieldAndValue(suggestion.field, value, normalizedEvidence)
+    if (!normalized) continue
+
     const confidence = Number.isFinite(suggestion.confidence)
       ? Math.min(100, Math.max(0, Math.round(suggestion.confidence)))
       : 0
     const sanitized = {
-      field: suggestion.field,
+      field: normalized.field,
       label: typeof suggestion.label === 'string' && suggestion.label.trim()
         ? suggestion.label.trim()
-        : suggestion.field,
-      value,
+        : normalized.field,
+      value: normalized.value,
       confidence,
       evidence,
     }
-    const existing = suggestionsByField.get(suggestion.field)
+    const existing = suggestionsByField.get(normalized.field)
     if (!existing || sanitized.confidence > existing.confidence) {
-      suggestionsByField.set(suggestion.field, sanitized)
+      suggestionsByField.set(normalized.field, sanitized)
     }
   }
 
@@ -155,7 +194,7 @@ export default async function handler(request, response) {
         messages: [
           {
             role: 'system',
-            content: 'You map a UK electrician\'s spoken site note to an Electrical Installation Certificate. Return suggestions only for facts explicitly stated in the transcript. Omit every unmentioned field: never return placeholders such as "Not specified", "Unknown", "N/A", or inferred defaults. Never invent a reading, person, address, compliance result, departure, signature, or date. Evidence must be an exact non-empty excerpt from the transcript that supports the value. Use the permitted field names. Keep values concise. Use lower confidence for ambiguous speech.',
+            content: 'You map a UK electrician\'s spoken site note to an Electrical Installation Certificate. Return suggestions only for facts explicitly stated in the transcript. Omit every unmentioned field: never return placeholders such as "Not specified", "Unknown", "N/A", or inferred defaults. Never invent a reading, person, address, compliance result, departure, signature, or date. Evidence must be an exact non-empty excerpt from the transcript that supports the value. The field "address" is the electrical installation/site address; "clientAddress" is only the customer\'s separate postal address. Likewise, "postcode" is the site postcode and "clientPostcode" is only the customer\'s postcode. The installationType value must be exactly "New installation", "Addition", or "Alteration". Use the permitted field names. Keep values concise. Use lower confidence for ambiguous speech.',
           },
           { role: 'user', content: transcript },
         ],

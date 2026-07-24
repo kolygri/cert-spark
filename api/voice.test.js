@@ -89,3 +89,60 @@ test('deduplicates fields and keeps the highest-confidence supported suggestion'
     evidence: 'TN-C-S, also known as PME',
   }])
 })
+
+test('disambiguates a site address and canonicalizes supported certificate values', () => {
+  const transcript = 'This is a new installation at 24 Willow Lane. The earthing arrangement is TNCS.'
+  const suggestions = sanitizeSuggestions([
+    {
+      field: 'clientAddress',
+      label: 'Client Address',
+      value: '24 Willow Lane',
+      confidence: 98,
+      evidence: 'This is a new installation at 24 Willow Lane.',
+    },
+    {
+      field: 'installationType',
+      label: 'Installation Type',
+      value: 'new',
+      confidence: 99,
+      evidence: 'new installation',
+    },
+    {
+      field: 'earthingArrangement',
+      label: 'Earthing Arrangement',
+      value: 'TNCS',
+      confidence: 97,
+      evidence: 'The earthing arrangement is TNCS.',
+    },
+  ], transcript)
+
+  assert.deepEqual(suggestions.map(({ field, value }) => ({ field, value })), [
+    { field: 'address', value: '24 Willow Lane' },
+    { field: 'installationType', value: 'New installation' },
+    { field: 'earthingArrangement', value: 'TN-C-S (PME)' },
+  ])
+})
+
+test('formats valid UK postcodes and rejects malformed ones', () => {
+  const transcript = 'The site postcode is B14 7QY, not B147Q.'
+  const suggestions = sanitizeSuggestions([
+    {
+      field: 'postcode',
+      label: 'Postcode',
+      value: 'b147qy',
+      confidence: 99,
+      evidence: 'B14 7QY',
+    },
+    {
+      field: 'clientPostcode',
+      label: 'Client Postcode',
+      value: 'B147Q',
+      confidence: 99,
+      evidence: 'B147Q',
+    },
+  ], transcript)
+
+  assert.deepEqual(suggestions.map(({ field, value }) => ({ field, value })), [
+    { field: 'postcode', value: 'B14 7QY' },
+  ])
+})
