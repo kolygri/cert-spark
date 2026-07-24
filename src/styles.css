@@ -95,9 +95,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .login-lock { display: grid; width: 48px; height: 48px; place-items: center; margin-bottom: 25px; border-radius: 14px; color: var(--navy); background: var(--lime); box-shadow: 0 8px 23px rgba(111,151,36,.17); }
 .login-kicker { margin: 0 0 7px; color: var(--green-deep); font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
 .login-card h2 { margin: 0; color: var(--ink); font-size: 28px; letter-spacing: -1px; }
-.login-intro { margin: 10px 0 27px; color: #6d8089; font-size: 11px; line-height: 1.65; }
+.login-intro { margin: 10px 0 20px; color: #6d8089; font-size: 11px; line-height: 1.65; }
+.login-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 22px; border-radius: 10px; padding: 4px; background: #edf2ef; }
+.login-methods button { min-height: 35px; border: 0; border-radius: 7px; color: #718189; background: transparent; font-size: 9px; font-weight: 800; cursor: pointer; }
+.login-methods button.is-active { color: var(--ink); background: #fff; box-shadow: 0 3px 10px rgba(25,49,60,.1); }
 .login-form label { display: block; margin-bottom: 7px; color: #354f5d; font-size: 10px; font-weight: 800; }
 .login-input { position: relative; }
+.login-input + label { margin-top: 14px; }
 .login-input svg { position: absolute; top: 15px; left: 14px; color: #73878f; }
 .login-input input { width: 100%; height: 49px; border: 1px solid var(--line-dark); border-radius: 10px; padding: 0 14px 0 43px; color: var(--ink); background: #fbfcfb; font-size: 12px; }
 .login-input input::placeholder { color: #a3afb3; }

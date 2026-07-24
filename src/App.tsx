@@ -46,6 +46,7 @@ import { isSupabaseConfigured, supabase } from './lib/supabase'
 type Page = 'home' | 'certificate' | 'certificates'
 type VoiceState = 'idle' | 'listening' | 'review' | 'applied'
 type LoginState = 'idle' | 'sending' | 'sent' | 'error'
+type LoginMethod = 'link' | 'password'
 
 type FormValues = Record<string, string>
 type VoiceMapping = { field: keyof FormValues; label: string; value: string; confidence: number; evidence: string }
@@ -272,6 +273,34 @@ function App() {
     setLoginMessage(`We sent a secure sign-in link to ${email.trim()}.`)
   }
 
+  const signInWithPassword = async (email: string, password: string) => {
+    if (!supabase) {
+      setLoginState('error')
+      setLoginMessage('Sign-in is not configured yet.')
+      return
+    }
+
+    if (password.length < 8) {
+      setLoginState('error')
+      setLoginMessage('Password must be at least 8 characters.')
+      return
+    }
+
+    setLoginState('sending')
+    setLoginMessage('')
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    })
+    if (error) {
+      setLoginState('error')
+      setLoginMessage(error.message)
+      return
+    }
+    setSession(data.session)
+    setLoginState('idle')
+  }
+
   const saveDraft = async () => {
     if (!supabase) {
       setSaved(true)
@@ -358,7 +387,8 @@ function App() {
       <LoginPage
         state={loginState}
         message={loginMessage}
-        onSubmit={signIn}
+        onLinkSubmit={signIn}
+        onPasswordSubmit={signInWithPassword}
         onReset={() => {
           setLoginState('idle')
           setLoginMessage('')
@@ -449,17 +479,28 @@ function AuthLoading() {
 function LoginPage({
   state,
   message,
-  onSubmit,
+  onLinkSubmit,
+  onPasswordSubmit,
   onReset,
 }: {
   state: LoginState
   message: string
-  onSubmit: (email: string) => Promise<void>
+  onLinkSubmit: (email: string) => Promise<void>
+  onPasswordSubmit: (email: string, password: string) => Promise<void>
   onReset: () => void
 }) {
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [method, setMethod] = useState<LoginMethod>('link')
   const isSending = state === 'sending'
   const isSent = state === 'sent'
+  const isPassword = method === 'password'
+
+  const selectMethod = (nextMethod: LoginMethod) => {
+    setMethod(nextMethod)
+    setPassword('')
+    onReset()
+  }
 
   return (
     <main className="login-page">
@@ -486,7 +527,32 @@ function LoginPage({
           <h2>{isSent ? 'Check your inbox' : 'Welcome back'}</h2>
           <p className="login-intro">{isSent
             ? 'Open the link on this device to return to your FieldCert workspace.'
-            : 'Enter your work email. We’ll send you a secure, password-free sign-in link.'}</p>
+            : isPassword
+              ? 'Sign in directly with your work email and password.'
+              : 'Enter your work email. We’ll send you a secure, password-free sign-in link.'}</p>
+
+          {!isSent && (
+            <div className="login-methods" role="tablist" aria-label="Sign-in method">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!isPassword}
+                className={!isPassword ? 'is-active' : ''}
+                onClick={() => selectMethod('link')}
+              >
+                Email link
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isPassword}
+                className={isPassword ? 'is-active' : ''}
+                onClick={() => selectMethod('password')}
+              >
+                Password
+              </button>
+            </div>
+          )}
 
           {isSent ? (
             <>
@@ -501,7 +567,8 @@ function LoginPage({
               className="login-form"
               onSubmit={(event) => {
                 event.preventDefault()
-                void onSubmit(email)
+                if (isPassword) void onPasswordSubmit(email, password)
+                else void onLinkSubmit(email)
               }}
             >
               <label htmlFor="login-email">Work email</label>
@@ -519,14 +586,35 @@ function LoginPage({
                   disabled={isSending}
                 />
               </div>
+              {isPassword && (
+                <>
+                  <label htmlFor="login-password">Password</label>
+                  <div className="login-input">
+                    <LockKeyhole size={19} />
+                    <input
+                      id="login-password"
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      required
+                      minLength={8}
+                      disabled={isSending}
+                    />
+                  </div>
+                </>
+              )}
               {state === 'error' && <p className="login-error" role="alert">{message}</p>}
               <button className="button button--primary button--full login-submit" type="submit" disabled={isSending}>
-                {isSending ? 'Sending secure link…' : 'Email me a sign-in link'} <ArrowRight size={17} />
+                {isSending ? 'Signing in…' : isPassword ? 'Sign in with password' : 'Email me a sign-in link'} <ArrowRight size={17} />
               </button>
             </form>
           )}
 
-          <p className="login-help"><ShieldCheck size={15} /> The link expires shortly and can only be used once.</p>
+          <p className="login-help"><ShieldCheck size={15} /> {isPassword
+            ? 'Your password is protected in transit and is never sent by email.'
+            : 'The link expires shortly and can only be used once.'}</p>
         </div>
       </section>
     </main>
