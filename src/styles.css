@@ -618,7 +618,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   .login-page { display: block; min-height: 100svh; background: #f7f9f7; }
   .login-story { display: none; }
   .login-panel { min-height: 100svh; align-items: stretch; flex-direction: column; justify-content: flex-start; padding: max(22px, env(safe-area-inset-top)) 18px 26px; }
-  .login-mobile-brand { display: block; margin-bottom: auto; padding-bottom: 34px; }
+  .login-mobile-brand { display: block; margin-bottom: 28px; }
   .login-mobile-brand .brand { padding: 0; color: var(--ink); }
   .login-card { width: 100%; border: 0; border-radius: 18px; padding: 25px 20px; box-shadow: 0 16px 42px rgba(19,45,58,.1); }
   .login-lock { width: 44px; height: 44px; margin-bottom: 20px; border-radius: 12px; }
