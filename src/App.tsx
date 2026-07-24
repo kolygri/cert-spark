@@ -45,6 +45,7 @@ import { isSupabaseConfigured, supabase } from './lib/supabase'
 
 type Page = 'home' | 'certificate' | 'certificates'
 type VoiceState = 'idle' | 'listening' | 'review' | 'applied'
+type LoginState = 'idle' | 'sending' | 'sent' | 'error'
 
 type FormValues = Record<string, string>
 type VoiceMapping = { field: keyof FormValues; label: string; value: string; confidence: number; evidence: string }
@@ -122,6 +123,9 @@ function App() {
   const [saved, setSaved] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [session, setSession] = useState<Session | null>(null)
+  const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
+  const [loginState, setLoginState] = useState<LoginState>('idle')
+  const [loginMessage, setLoginMessage] = useState('')
   const [voiceMappings, setVoiceMappings] = useState<VoiceMapping[]>([])
   const [appliedVoiceFieldCount, setAppliedVoiceFieldCount] = useState(0)
   const [appliedLowConfidenceCount, setAppliedLowConfidenceCount] = useState(0)
@@ -134,9 +138,13 @@ function App() {
   useEffect(() => {
     if (!supabase) return
 
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    void supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      setAuthReady(true)
+    }).catch(() => setAuthReady(true))
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
+      setAuthReady(true)
     })
 
     return () => authListener.subscription.unsubscribe()
@@ -242,20 +250,26 @@ function App() {
     setToast(`${applicableMappings.length} fields added — you’re still in control`)
   }
 
-  const signIn = async () => {
+  const signIn = async (email: string) => {
     if (!supabase) {
-      setToast('Connect Supabase to enable sign-in')
+      setLoginState('error')
+      setLoginMessage('Sign-in is not configured yet.')
       return
     }
 
-    const email = window.prompt('Enter your work email to receive a secure sign-in link.')?.trim()
-    if (!email) return
-
+    setLoginState('sending')
+    setLoginMessage('')
     const { error } = await supabase.auth.signInWithOtp({
-      email,
+      email: email.trim(),
       options: { emailRedirectTo: window.location.origin },
     })
-    setToast(error ? error.message : 'Check your email for your secure sign-in link')
+    if (error) {
+      setLoginState('error')
+      setLoginMessage(error.message)
+      return
+    }
+    setLoginState('sent')
+    setLoginMessage(`We sent a secure sign-in link to ${email.trim()}.`)
   }
 
   const saveDraft = async () => {
@@ -337,6 +351,22 @@ function App() {
     }
   }
 
+  if (!authReady) return <AuthLoading />
+
+  if (isSupabaseConfigured && !session) {
+    return (
+      <LoginPage
+        state={loginState}
+        message={loginMessage}
+        onSubmit={signIn}
+        onReset={() => {
+          setLoginState('idle')
+          setLoginMessage('')
+        }}
+      />
+    )
+  }
+
   return (
     <div className="app-shell">
       <DesktopRail page={page} onNavigate={setPage} onVoice={() => void startVoice(false)} />
@@ -349,8 +379,6 @@ function App() {
           onBack={() => setPage('home')}
           onSave={saveDraft}
           isSaving={isSaving}
-          isSignedIn={Boolean(session)}
-          onSignIn={signIn}
         />
 
         {page === 'certificate' ? (
@@ -405,6 +433,103 @@ function App() {
         </div>
       )}
     </div>
+  )
+}
+
+function AuthLoading() {
+  return (
+    <main className="auth-loading" aria-label="Loading FieldCert">
+      <BrandMark />
+      <span className="auth-loading__pulse" />
+      <p>Opening your secure workspace…</p>
+    </main>
+  )
+}
+
+function LoginPage({
+  state,
+  message,
+  onSubmit,
+  onReset,
+}: {
+  state: LoginState
+  message: string
+  onSubmit: (email: string) => Promise<void>
+  onReset: () => void
+}) {
+  const [email, setEmail] = useState('')
+  const isSending = state === 'sending'
+  const isSent = state === 'sent'
+
+  return (
+    <main className="login-page">
+      <section className="login-story" aria-label="FieldCert">
+        <BrandMark />
+        <div className="login-story__content">
+          <span className="login-eyebrow"><Sparkles size={15} /> Voice-first certification</span>
+          <h1>Finish the paperwork while you’re still on site.</h1>
+          <p>Speak your inspection notes, review every matched field, and keep your certificates moving.</p>
+          <div className="login-proof">
+            <span><CheckCircle2 size={18} /><strong>Review before anything changes</strong></span>
+            <span><ShieldCheck size={18} /><strong>Secure workspace access</strong></span>
+            <span><Mic size={18} /><strong>Built for phones and tablets</strong></span>
+          </div>
+        </div>
+        <p className="login-story__foot">Electrical certificates, without the end-of-day admin.</p>
+      </section>
+
+      <section className="login-panel">
+        <div className="login-mobile-brand"><BrandMark /></div>
+        <div className="login-card">
+          <span className="login-lock"><LockKeyhole size={22} /></span>
+          <p className="login-kicker">Secure sign in</p>
+          <h2>{isSent ? 'Check your inbox' : 'Welcome back'}</h2>
+          <p className="login-intro">{isSent
+            ? 'Open the link on this device to return to your FieldCert workspace.'
+            : 'Enter your work email. We’ll send you a secure, password-free sign-in link.'}</p>
+
+          {isSent ? (
+            <>
+              <div className="login-sent" role="status">
+                <Mail size={20} />
+                <span><strong>Link sent</strong>{message}</span>
+              </div>
+              <button className="button button--soft button--full login-secondary" onClick={onReset}>Use a different email</button>
+            </>
+          ) : (
+            <form
+              className="login-form"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void onSubmit(email)
+              }}
+            >
+              <label htmlFor="login-email">Work email</label>
+              <div className="login-input">
+                <Mail size={19} />
+                <input
+                  id="login-email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  placeholder="you@company.co.uk"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                  disabled={isSending}
+                />
+              </div>
+              {state === 'error' && <p className="login-error" role="alert">{message}</p>}
+              <button className="button button--primary button--full login-submit" type="submit" disabled={isSending}>
+                {isSending ? 'Sending secure link…' : 'Email me a sign-in link'} <ArrowRight size={17} />
+              </button>
+            </form>
+          )}
+
+          <p className="login-help"><ShieldCheck size={15} /> The link expires shortly and can only be used once.</p>
+        </div>
+      </section>
+    </main>
   )
 }
 
@@ -496,8 +621,6 @@ function TopBar({
   onBack,
   onSave,
   isSaving,
-  isSignedIn,
-  onSignIn,
 }: {
   page: Page
   saved: boolean
@@ -505,8 +628,6 @@ function TopBar({
   onBack: () => void
   onSave: () => void
   isSaving: boolean
-  isSignedIn: boolean
-  onSignIn: () => void
 }) {
   const label = page === 'certificate' ? certificateNo : page === 'home' ? 'Home' : 'Certificates'
   return (
@@ -532,7 +653,6 @@ function TopBar({
           </>
         )}
         {!isSupabaseConfigured && <span className="demo-state">Demo mode</span>}
-        {!isSignedIn && isSupabaseConfigured && <button className="button button--soft" onClick={onSignIn}>Sign in</button>}
         <button className="icon-button" aria-label="Notifications"><Bell size={19} /><i /></button>
         <span className="top-avatar">AJ</span>
       </div>
