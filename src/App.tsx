@@ -22,8 +22,8 @@ import {
   LayoutGrid,
   Lightbulb,
   LockKeyhole,
+  LogOut,
   MapPin,
-  Menu,
   Mic,
   MoreHorizontal,
   Pencil,
@@ -127,6 +127,8 @@ function App() {
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
   const [loginState, setLoginState] = useState<LoginState>('idle')
   const [loginMessage, setLoginMessage] = useState('')
+  const [accountOpen, setAccountOpen] = useState(false)
+  const [isSigningOut, setIsSigningOut] = useState(false)
   const [voiceMappings, setVoiceMappings] = useState<VoiceMapping[]>([])
   const [appliedVoiceFieldCount, setAppliedVoiceFieldCount] = useState(0)
   const [appliedLowConfidenceCount, setAppliedLowConfidenceCount] = useState(0)
@@ -380,6 +382,21 @@ function App() {
     }
   }
 
+  const signOut = async () => {
+    if (!supabase) return
+    setIsSigningOut(true)
+    cancelVoice()
+    setMobileVoiceOpen(false)
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      setToast(error.message)
+      setIsSigningOut(false)
+      return
+    }
+    setAccountOpen(false)
+    setIsSigningOut(false)
+  }
+
   if (!authReady) return <AuthLoading />
 
   if (isSupabaseConfigured && !session) {
@@ -399,7 +416,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <DesktopRail page={page} onNavigate={setPage} onVoice={() => void startVoice(false)} />
+      <DesktopRail page={page} onNavigate={setPage} onVoice={() => void startVoice(false)} onAccount={() => setAccountOpen(true)} />
 
       <div className="app-stage">
         <TopBar
@@ -409,6 +426,7 @@ function App() {
           onBack={() => setPage('home')}
           onSave={saveDraft}
           isSaving={isSaving}
+          onAccount={() => setAccountOpen(true)}
         />
 
         {page === 'certificate' ? (
@@ -437,7 +455,16 @@ function App() {
         )}
       </div>
 
-      <MobileNavigation page={page} onNavigate={setPage} onVoice={() => void startVoice(true)} />
+      <MobileNavigation page={page} onNavigate={setPage} onVoice={() => void startVoice(true)} onAccount={() => setAccountOpen(true)} />
+
+      {accountOpen && session && (
+        <AccountMenu
+          email={session.user.email ?? 'Signed-in user'}
+          isSigningOut={isSigningOut}
+          onClose={() => setAccountOpen(false)}
+          onSignOut={() => void signOut()}
+        />
+      )}
 
       {mobileVoiceOpen && (
         <MobileVoiceSheet
@@ -636,10 +663,12 @@ function DesktopRail({
   page,
   onNavigate,
   onVoice,
+  onAccount,
 }: {
   page: Page
   onNavigate: (page: Page) => void
   onVoice: () => void
+  onAccount: () => void
 }) {
   return (
     <aside className="desktop-rail">
@@ -668,14 +697,14 @@ function DesktopRail({
         <RailItem active={false} icon={<HelpCircle size={19} />} label="Help & feedback" />
         <RailItem active={false} icon={<Settings size={19} />} label="Settings" />
       </nav>
-      <div className="rail-user">
+      <button className="rail-user" onClick={onAccount} aria-label="Open account menu">
         <span className="avatar">AJ</span>
         <span>
           <strong>Alex Jones</strong>
           <small>AJ Electrical</small>
         </span>
         <MoreHorizontal size={18} />
-      </div>
+      </button>
     </aside>
   )
 }
@@ -709,6 +738,7 @@ function TopBar({
   onBack,
   onSave,
   isSaving,
+  onAccount,
 }: {
   page: Page
   saved: boolean
@@ -716,11 +746,12 @@ function TopBar({
   onBack: () => void
   onSave: () => void
   isSaving: boolean
+  onAccount: () => void
 }) {
   const label = page === 'certificate' ? certificateNo : page === 'home' ? 'Home' : 'Certificates'
   return (
     <header className="topbar">
-      <div className="mobile-brand"><BrandMark /><button className="mobile-menu" aria-label="Open menu"><Menu size={22} /></button></div>
+      <div className="mobile-brand"><BrandMark /><button className="mobile-menu" onClick={onAccount} aria-label="Open account menu"><UserRound size={21} /></button></div>
       <div className="topbar__trail">
         {page === 'certificate' && (
           <button className="back-button" onClick={onBack} aria-label="Back to certificates">
@@ -742,9 +773,38 @@ function TopBar({
         )}
         {!isSupabaseConfigured && <span className="demo-state">Demo mode</span>}
         <button className="icon-button" aria-label="Notifications"><Bell size={19} /><i /></button>
-        <span className="top-avatar">AJ</span>
+        <button className="top-avatar" onClick={onAccount} aria-label="Open account menu">AJ</button>
       </div>
     </header>
+  )
+}
+
+function AccountMenu({
+  email,
+  isSigningOut,
+  onClose,
+  onSignOut,
+}: {
+  email: string
+  isSigningOut: boolean
+  onClose: () => void
+  onSignOut: () => void
+}) {
+  return (
+    <div className="account-backdrop" role="presentation" onClick={onClose}>
+      <section className="account-menu" role="dialog" aria-modal="true" aria-label="Account menu" onClick={(event) => event.stopPropagation()}>
+        <button className="account-close" onClick={onClose} aria-label="Close account menu"><X size={18} /></button>
+        <span className="account-avatar">AJ</span>
+        <p className="account-kicker">Signed in as</p>
+        <strong>Alex Jones</strong>
+        <span className="account-email">{email}</span>
+        <div className="account-company"><Building2 size={17} /><span><strong>AJ Electrical</strong><small>Workspace member</small></span></div>
+        <button className="account-signout" onClick={onSignOut} disabled={isSigningOut}>
+          <LogOut size={18} />
+          {isSigningOut ? 'Signing out…' : 'Sign out'}
+        </button>
+      </section>
+    </div>
   )
 }
 
@@ -1320,14 +1380,14 @@ function CertificatesPage({ onOpenCertificate }: { onOpenCertificate: () => void
   )
 }
 
-function MobileNavigation({ page, onNavigate, onVoice }: { page: Page; onNavigate: (page: Page) => void; onVoice: () => void }) {
+function MobileNavigation({ page, onNavigate, onVoice, onAccount }: { page: Page; onNavigate: (page: Page) => void; onVoice: () => void; onAccount: () => void }) {
   return (
     <nav className="mobile-nav" aria-label="Mobile navigation">
       <button className={page === 'home' ? 'is-active' : ''} onClick={() => onNavigate('home')}><Home size={20} /><span>Home</span></button>
       <button className={page === 'certificates' || page === 'certificate' ? 'is-active' : ''} onClick={() => onNavigate('certificates')}><Files size={20} /><span>Certificates</span></button>
       <button className="mobile-talk" onClick={onVoice}><span><Mic size={25} /></span><em>Talk</em></button>
       <button><LayoutGrid size={20} /><span>Clients</span></button>
-      <button><UserRound size={20} /><span>Account</span></button>
+      <button onClick={onAccount}><UserRound size={20} /><span>Account</span></button>
     </nav>
   )
 }
