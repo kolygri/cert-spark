@@ -1153,7 +1153,7 @@ function TextArea({
 
 function SegmentedControl({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
   return (
-    <span className="segmented-control">
+    <span className="segmented-control" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
       {options.map((option) => (
         <button type="button" className={value === option ? 'is-selected' : ''} key={option} onClick={() => onChange(option)}>
           <span>{value === option && <Check size={13} />}</span>{option}
