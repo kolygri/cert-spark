@@ -52,6 +52,17 @@ type FormValues = Record<string, string>
 type VoiceMapping = { field: keyof FormValues; label: string; value: string; confidence: number; evidence: string }
 
 const invalidVoiceValues = new Set(['', 'n/a', 'none', 'unknown', 'unspecified', 'not mentioned', 'not provided', 'not specified', 'not stated'])
+const preferredRecordingTypes = [
+  'audio/webm;codecs=opus',
+  'audio/mp4;codecs=mp4a.40.2',
+  'audio/mp4',
+  'audio/ogg;codecs=opus',
+]
+
+const getRecordingOptions = () => {
+  const mimeType = preferredRecordingTypes.find((type) => MediaRecorder.isTypeSupported(type))
+  return mimeType ? { mimeType } : undefined
+}
 
 const initialValues: FormValues = {
   clientName: 'Maya Patel',
@@ -178,7 +189,7 @@ function App() {
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream)
+      const recorder = new MediaRecorder(stream, getRecordingOptions())
       const chunks: BlobPart[] = []
       streamRef.current = stream
       recorderRef.current = recorder
@@ -190,7 +201,9 @@ function App() {
         }
         try {
           setToast('Turning your site note into certificate fields…')
-          const audio = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+          const recordedType = recorder.mimeType || chunks.find((chunk) => chunk instanceof Blob)?.type
+          if (!recordedType) throw new Error('This browser did not provide a supported audio format')
+          const audio = new Blob(chunks, { type: recordedType })
           const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } }
           if (!data.session?.access_token) throw new Error('Sign in before using voice capture')
           const result = await fetch('/api/voice', {

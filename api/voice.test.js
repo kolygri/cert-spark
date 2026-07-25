@@ -1,6 +1,31 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeTranscript, sanitizeSuggestions } from './voice.js'
+import { getAudioUploadMetadata, normalizeTranscript, sanitizeSuggestions } from './voice.js'
+
+test('maps browser audio MIME types to matching upload filenames', () => {
+  assert.deepEqual(getAudioUploadMetadata('audio/webm;codecs=opus'), {
+    type: 'audio/webm',
+    extension: 'webm',
+  })
+  assert.deepEqual(getAudioUploadMetadata('audio/mp4; codecs=mp4a.40.2'), {
+    type: 'audio/mp4',
+    extension: 'm4a',
+  })
+  assert.deepEqual(getAudioUploadMetadata('audio/mpeg'), {
+    type: 'audio/mpeg',
+    extension: 'mp3',
+  })
+  assert.deepEqual(getAudioUploadMetadata('audio/x-wav'), {
+    type: 'audio/wav',
+    extension: 'wav',
+  })
+})
+
+test('rejects missing and unsupported browser audio MIME types', () => {
+  assert.equal(getAudioUploadMetadata(undefined), null)
+  assert.equal(getAudioUploadMetadata(''), null)
+  assert.equal(getAudioUploadMetadata('application/octet-stream'), null)
+})
 
 test('normalizes missing and whitespace-only transcripts', () => {
   assert.equal(normalizeTranscript(undefined), '')

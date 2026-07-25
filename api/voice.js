@@ -1,4 +1,16 @@
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024
+const audioTypes = new Map([
+  ['audio/aac', { type: 'audio/aac', extension: 'aac' }],
+  ['audio/flac', { type: 'audio/flac', extension: 'flac' }],
+  ['audio/mp4', { type: 'audio/mp4', extension: 'm4a' }],
+  ['audio/mpeg', { type: 'audio/mpeg', extension: 'mp3' }],
+  ['audio/mp3', { type: 'audio/mpeg', extension: 'mp3' }],
+  ['audio/ogg', { type: 'audio/ogg', extension: 'ogg' }],
+  ['audio/wav', { type: 'audio/wav', extension: 'wav' }],
+  ['audio/wave', { type: 'audio/wav', extension: 'wav' }],
+  ['audio/x-wav', { type: 'audio/wav', extension: 'wav' }],
+  ['audio/webm', { type: 'audio/webm', extension: 'webm' }],
+])
 
 const editableFields = [
   'clientName', 'clientAddress', 'clientPostcode', 'address', 'postcode', 'installationType',
@@ -14,6 +26,12 @@ const placeholderValuePattern = /^(?:n\/?a|none|unknown|unspecified|not (?:menti
 
 export function normalizeTranscript(value) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+export function getAudioUploadMetadata(contentType) {
+  if (typeof contentType !== 'string') return null
+  const normalizedType = contentType.split(';', 1)[0].trim().toLowerCase()
+  return audioTypes.get(normalizedType) || null
 }
 
 function normalizeEvidence(value) {
@@ -168,10 +186,17 @@ export default async function handler(request, response) {
     const audio = await readRequestBody(request)
     if (!audio.length) return response.status(400).json({ error: 'No audio was received.' })
 
-    const audioType = request.headers['content-type'] || 'audio/webm'
+    const audioMetadata = getAudioUploadMetadata(request.headers['content-type'])
+    if (!audioMetadata) {
+      return response.status(415).json({ error: 'This browser produced an unsupported audio format. Please try another browser.' })
+    }
     const audioForm = new FormData()
     audioForm.append('model', 'gpt-4o-mini-transcribe')
-    audioForm.append('file', new Blob([audio], { type: audioType }), 'fieldcert-site-note.webm')
+    audioForm.append(
+      'file',
+      new Blob([audio], { type: audioMetadata.type }),
+      `fieldcert-site-note.${audioMetadata.extension}`,
+    )
 
     const transcription = await openAiJson('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -205,6 +230,10 @@ export default async function handler(request, response) {
     const suggestions = sanitizeSuggestions(mapping.suggestions, transcript)
     return response.status(200).json({ transcript, suggestions })
   } catch (error) {
+    console.error('Voice processing failed', {
+      contentType: request.headers['content-type'] || null,
+      message: error instanceof Error ? error.message : 'Unknown error',
+    })
     return response.status(500).json({ error: error instanceof Error ? error.message : 'Voice processing failed.' })
   }
 }
