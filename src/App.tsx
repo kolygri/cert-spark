@@ -1016,8 +1016,8 @@ function CertificateSectionFields({ section, values, onChange, onStartVoice }: {
 
   if (section === 'F') return <div className="form-grid form-grid--supply">
     <FormNotice text="Capture measured values from the site. FieldCert will flag missing test data before an issue can be signed." />
-    <Field label="Earthing arrangement" className="span-half" required><SegmentedControl value={values.earthingArrangement} options={['TN-C-S (PME)', 'TN-S', 'TT']} onChange={(value) => onChange('earthingArrangement', value)} /></Field>
-    <Field label="Supply conductors" className="span-half" required><SegmentedControl value={values.supplyPhase} options={['1-phase, 2-wire', '3-phase, 4-wire']} onChange={(value) => onChange('supplyPhase', value)} /></Field>
+    <Field label="Earthing arrangement" className="span-full" required><SegmentedControl value={values.earthingArrangement} options={['TN-C-S (PME)', 'TN-S', 'TT']} onChange={(value) => onChange('earthingArrangement', value)} /></Field>
+    <Field label="Supply conductors" className="span-full" required><SegmentedControl value={values.supplyPhase} options={['1-phase, 2-wire', '3-phase, 4-wire']} onChange={(value) => onChange('supplyPhase', value)} /></Field>
     <Field label="Nominal voltage (V)" className="span-half" required>{input('nominalVoltage', '230')}</Field>
     <Field label="Nominal frequency (Hz)" className="span-half" required>{input('nominalFrequency', '50')}</Field>
     <Field label="Prospective fault current Ipf (kA)" className="span-half">{input('prospectiveFaultCurrent', 'Measure or by enquiry')}</Field>
